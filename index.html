@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<script type="text/javascript" src="js/screen.js"></script>
+		<script type="text/javascript" src="js/packet.js"></script>
+		<style>
+			body{
+				margin:0px 0px 0px 0px;
+			}
+			#overlay{
+				position:absolute;
+				left:0px;
+				top:0px;
+				z-index: 2;
+			}
+			.screen{
+				position:absolute;
+				border:solid 2px black;
+			}
+		</style>
+	</head>
+	<body>
+		<script type="text/javascript">
+
+			////////////////////////////////////////
+			////////////////////////////////////////
+			////////////////////////////////////////
+
+			//GLOBAL VARIABLES
+
+			var overlayCanvas;
+			var overlayContext;
+
+			var screens = [];
+
+			////////////////////////////////////////
+			////////////////////////////////////////
+			////////////////////////////////////////
+
+			var mouseDown = false;
+
+			function initOverlay(){
+				overlayCanvas = document.createElement('canvas');
+				overlayCanvas.id = 'overlay';
+				overlayCanvas.width = theWidth;
+				overlayCanvas.height = theHeight;
+				overlayContext = overlayCanvas.getContext('2d');
+				overlayCanvas.onmousedown = function(e){
+					findTouchedScreen(e.x,e.y);
+					mouseDown = true;
+				}
+				overlayCanvas.onmouseup = function(e){
+					mouseDown=false;
+					if(screens[touchedScreen]){
+						screens[touchedScreen].release();
+					}
+					touchedScreen=-1;
+					//trigger stuff for sharing pixels
+				}
+				overlayCanvas.onmousemove = function(e){
+					if(screens[touchedScreen] && mouseDown){
+						screens[touchedScreen].draw(e.x,e.y);
+					}
+				}
+				document.body.appendChild(overlayCanvas);
+			}
+
+			////////////////////////////////////////
+			////////////////////////////////////////
+			////////////////////////////////////////
+
+			var slicedImages = [];
+
+			var seedCanvas;
+			var seedContext;
+
+			var xDim = 20;
+			var yDim = 10;
+
+			function initSeedingCanvases(){
+				seedCanvas = document.createElement('canvas');
+				seedCanvas.width = Math.round(maxScreenWidth*theWidth);
+				seedCanvas.height = Math.round(seedCanvas.width*screenRatio);
+				seedContext = seedCanvas.getContext('2d');
+				for(var i=0;i<xDim*yDim;i++){
+					slicedImages[i] = document.createElement('canvas');
+					slicedImages[i].width = Math.round(seedCanvas.width/xDim);
+					slicedImages[i].height = Math.round(seedCanvas.height/yDim);
+				}
+			}
+
+			////////////////////////////////////////
+			////////////////////////////////////////
+			////////////////////////////////////////
+
+			var packets = [];
+
+			function startSeeding(image,s){
+				seedContext.drawImage(image,0,0,seedCanvas.width,seedCanvas.height);
+				var xSpace = seedCanvas.width/xDim;
+				var ySpace = seedCanvas.height/yDim;
+				for(var x=0;x<xDim;x++){
+					var xPos = x*xSpace;
+					for(var y=0;y<yDim;y++){
+						var yPos = y*ySpace;
+						var index = x+(y*xDim);
+						slicedImages[index].getContext('2d').drawImage(seedCanvas,xPos,yPos,xSpace,ySpace,0,0,xSpace,ySpace);
+						for(var i=0;i<screens.length;i++){
+							if(screens[i]!=s){
+
+								var relX = xPos/seedCanvas.width;
+								var relY = yPos/seedCanvas.height;
+								var w = screens[i].width/xDim;
+								var h = screens[i].height/yDim;
+
+								var startX = (relX*s.width)+(s.x-s.width/2);
+								var startY = (relY*s.height)+(s.y-s.height/2);
+								var targetX = (relX*screens[i].width)+(screens[i].x-screens[i].width/2);
+								var targetY = (relY*screens[i].height)+(screens[i].y-screens[i].height/2);
+
+								var p = new Packet(startX,startY,targetX,targetY,w,h,i,index);
+								packets.push(p);
+							}
+						}
+					}
+				}
+			}
+
+			////////////////////////////////////////
+			////////////////////////////////////////
+			////////////////////////////////////////
+
+			var touchedScreen = -1;
+
+			function findTouchedScreen(x,y){
+				for(var i=0;i<screens.length;i++){
+					var l = screens[i].x-screens[i].width/2;
+					var r = screens[i].x+screens[i].width/2;
+					var t = screens[i].y-screens[i].height/2;
+					var b = screens[i].y+screens[i].height/2;
+					if(x>l&&x<r&&y>t&&y<b){
+						screens[i].touchStart(x,y);
+						touchedScreen=i;
+						break;
+					}
+				}
+			}
+
+			////////////////////////////////////////
+			////////////////////////////////////////
+			////////////////////////////////////////
+
+			function initScreens(){
+				var dim = 2;
+				var xStep = 1/dim;
+				var yStep = 1/dim;
+				for(var x=0;x<dim;x++){
+					for(var y=0;y<dim;y++){
+						var tempX = x*xStep+(xStep/2);
+						var tempY = y*yStep+(yStep/2);
+						console.log(tempX);
+						var tempScale = Math.random()*.5+.5;
+						var s = makeScreen(tempX,tempY,tempScale);
+						screens.push(s);
+					}
+				}
+			}
+
+			////////////////////////////////////////
+			////////////////////////////////////////
+			////////////////////////////////////////
+
+			var screenNameCount = 0;
+
+			var maxScreenWidth = .25;
+			var screenRatio = .8;
+
+			function makeScreen(_x,_y,scale){
+				var w = maxScreenWidth*theWidth*scale;
+				var h = w*screenRatio;
+				var x = _x*theWidth;
+				var y = _y*theHeight;
+				var temp = new Screen(x,y,w,h,screenNameCount);
+				screenNameCount++;
+				return temp;
+			}
+
+			////////////////////////////////////////
+			////////////////////////////////////////
+			////////////////////////////////////////
+
+			function masterLoop(){
+				if(packets.length>0){
+					overlayContext.clearRect(0,0,overlayCanvas.width,overlayCanvas.height);
+					for(var i=0;i<packets.length;i++){
+						packets[i].update();
+						if(packets[i].done){
+							packets.splice(i,1);
+							i--;
+						}
+						else{
+							packets[i].paint(overlayContext);
+						}
+					}
+				}
+				requestAnimFrame(masterLoop);
+			}
+
+			////////////////////////////////////////
+			////////////////////////////////////////
+			////////////////////////////////////////
+
+			window.onload = init;
+
+			function init(){
+				setSize();
+
+				//make our screens
+				initScreens();
+
+				//append the active canvas on top our screens
+				initOverlay();
+
+				initSeedingCanvases();
+				masterLoop();
+			}
+
+			////////////////////////////////////////
+			////////////////////////////////////////
+			////////////////////////////////////////
+
+			var center = {
+				'x':undefined,
+				'y':undefined
+			};
+			var theWidth;
+			var theHeight;
+
+			function setSize(){
+				theWidth = window.innerWidth;
+				theHeight = window.innerHeight;
+				center.x = theWidth/2;
+				center.y = theHeight/2;
+			}
+
+			////////////////////////////////////////
+			////////////////////////////////////////
+			////////////////////////////////////////
+
+			window.requestAnimFrame = (function(){
+				return  window.requestAnimationFrame       ||
+				window.webkitRequestAnimationFrame ||
+				window.mozRequestAnimationFrame    ||
+				function( callback ){
+					window.setTimeout(callback, 1000 / 60);
+				};
+			})();
+
+			////////////////////////////////////////
+			////////////////////////////////////////
+			////////////////////////////////////////
+
+		</script>
+	</body>
+</html>
